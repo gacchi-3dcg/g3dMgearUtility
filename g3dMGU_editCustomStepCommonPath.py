@@ -4,7 +4,11 @@
 
 ### ------------------------------------------------------
 
+# system
 import os
+import shutil
+
+# maya
 import maya.cmds as cmds
 
 ### ------------------------------------------------------ 
@@ -58,25 +62,18 @@ import maya.cmds as cmds
     History:
         2024/12/02  ver1.0.0:  スクリプト作成 [ Maya2024 / mGear version: 4.2.2 ]
 """
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 """
-    使用方法
+    特徴
+        ・ファイルの存在確認とエラー対応
+            存在しないファイルがある場合、変更の継続または中断をユーザーが選べる。
 
-        maya/2024/scripts に g3dMgearUtility フォルダを配置して、
-        以下のスクリプトを maya の python で実行することで使用可能です。
-        シェルフ等に追加してご使用ください。
+        ・ユーザーインターフェース
+            Mayaのダイアログを使用して直感的な操作を提供。
 
-import g3dMgearUtility.g3dMGU_editCustomStepCommonPath as CSCommonPath
-import importlib
-
-# モジュールをリロードして更新する
-importlib.reload(CSCommonPath)
-
-# 更新されたモジュールのGUIを実行
-CSCommonPath.main()
-
+        ・拡張性
+        カスタムステップの管理やパス編集の際の確認プロセスを追加可能。
 """
-
 ### ------------------------------------------------------
 
 def findGuideNode(defaultGuide="guide"):
@@ -96,16 +93,7 @@ def findGuideNode(defaultGuide="guide"):
         if cmds.objExists(f"{trns}.preCustomStep"):
             return trns
 
-    # エラーダイアログを表示
-    cmds.confirmDialog(
-        title="Error",
-        message="No valid guide node found.",
-        button=["OK"],
-        defaultButton="OK",
-        icon="critical"
-    )
-    # エラーが発生した場合の返り値をNoneに設定
-    return None
+    raise RuntimeError("No valid guide node with attribute 'preCustomStep' found.")
 
 
 def extractCommonPath(inputString):
@@ -127,6 +115,56 @@ def extractCommonPath(inputString):
         return ""
 
 
+def incrementVersion(path):
+    """
+    パス内のバージョン番号 (_vXX) をインクリメントした新しいパスを生成します。
+
+    Args:
+        path (str): 元のパス。
+
+    Returns:
+        str: インクリメントされた新しいパス。
+    """
+    import re
+    match = re.search(r"(.*)(_v\d+)$", path)
+    if match:
+        base = match.group(1)
+        version = match.group(2)
+        newVersion = int(version[2:]) + 1
+        return f"{base}_v{newVersion:02d}"
+    return path  # バージョン番号がない場合はそのまま返す
+
+
+def duplicateFolder(srcFolder):
+    """
+    指定フォルダを複製して、新しいバージョンのフォルダを作成します。
+
+    Args:
+        srcFolder (str): 元のフォルダのパス。
+
+    Returns:
+        str: 新しいフォルダのパス。
+    """
+    if not os.path.exists(srcFolder):
+        cmds.error(f"Source folder does not exist: {srcFolder}")
+        return None
+
+    newFolder = incrementVersion(srcFolder)
+    try:
+        shutil.copytree(srcFolder, newFolder)
+        cmds.confirmDialog(
+            title="Success",
+            message=f"Folder duplicated successfully:\n{newFolder}",
+            button=["OK"],
+            defaultButton="OK",
+            icon="information"
+        )
+        return newFolder
+    except Exception as e:
+        cmds.error(f"Failed to duplicate folder: {e}")
+        return None
+
+
 def showPathEditorDialog(currentPath, onConfirm):
     """
     GUIで現在のパスを表示し、新しいパスを入力するダイアログを作成します。
@@ -137,6 +175,11 @@ def showPathEditorDialog(currentPath, onConfirm):
     """
     def onOK(*args):
         newPath = cmds.textField("pathInputField", q=True, text=True)
+        cmds.deleteUI(window)
+        onConfirm(newPath)
+
+    def onAddVer(*args):
+        newPath = duplicateFolder(currentPath)
         cmds.deleteUI(window)
         onConfirm(newPath)
 
@@ -179,8 +222,9 @@ def showPathEditorDialog(currentPath, onConfirm):
     cmds.separator(h=8, style="none")
 
     # rowLayout を開始
-    cmds.rowLayout(nc=2, cw2=(150, 150), adj=1, cal=(1, "center"), cat=(1, "both", 5))
+    cmds.rowLayout(nc=3, cw3=(150, 50, 150), adj=1, cal=(1, "center"), cat=(1, "both", 5))
     cmds.button(label="Update", command=onOK)
+    cmds.button(label="AddVer", command=onAddVer)
     cmds.button(label="Cancel", command=onCancel)
     cmds.setParent('..')  # rowLayout を終了
 
